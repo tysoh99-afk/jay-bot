@@ -354,7 +354,7 @@ def control_ea(payload: dict[str, str], authorization: str = Header(default=""))
     current = read_ea_status()
     if not current.get("mt5_connected", False):
         raise HTTPException(status_code=409, detail="MT5 must be connected before queueing EA controls")
-    if os.getenv("RENDER"):
+    if os.getenv("MT5_BRIDGE_TOKEN"):
         if current.get("data_state") != "LIVE":
             raise HTTPException(status_code=409, detail="A recent EA heartbeat is required for remote controls")
         global _remote_pending_command, _remote_command_delivered_at
