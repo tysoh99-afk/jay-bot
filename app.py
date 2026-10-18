@@ -42,6 +42,7 @@ _remote_snapshot: dict[str, Any] | None = None
 _remote_received_at = 0.0
 _remote_pending_command = ""
 _remote_command_delivered_at = 0.0
+_remote_command_queued_at = 0.0
 
 
 def _require_dashboard_access(token: str) -> None:
@@ -113,9 +114,14 @@ def _recent_trade_history() -> list[dict[str, str]]:
 
 
 def _pending_ea_command() -> str:
+    global _remote_pending_command, _remote_command_delivered_at, _remote_command_queued_at
     with _remote_bridge_lock:
         if _remote_pending_command:
-            return _remote_pending_command
+            if time.time() - _remote_command_queued_at <= 30:
+                return _remote_pending_command
+            _remote_pending_command = ""
+            _remote_command_delivered_at = 0.0
+            _remote_command_queued_at = 0.0
     try:
         command = (_common_files_directory() / "GoldFirstBot.command").read_text(encoding="ascii").strip().upper()
     except OSError:
@@ -357,10 +363,11 @@ def control_ea(payload: dict[str, str], authorization: str = Header(default=""))
     if os.getenv("MT5_BRIDGE_TOKEN"):
         if current.get("data_state") != "LIVE":
             raise HTTPException(status_code=409, detail="A recent EA heartbeat is required for remote controls")
-        global _remote_pending_command, _remote_command_delivered_at
+        global _remote_pending_command, _remote_command_delivered_at, _remote_command_queued_at
         with _remote_bridge_lock:
             _remote_pending_command = action
             _remote_command_delivered_at = 0.0
+            _remote_command_queued_at = time.time()
     else:
         try:
             _write_ea_command(action)
@@ -376,7 +383,8 @@ def receive_ea_heartbeat(
     payload: dict[str, Any],
     x_mt5_bridge_token: str = Header(default="", alias="X-MT5-Bridge-Token"),
 ) -> dict[str, Any]:
-    global _remote_snapshot, _remote_received_at, _remote_pending_command, _remote_command_delivered_at
+    global _remote_snapshot, _remote_received_at, _remote_pending_command
+    global _remote_command_delivered_at, _remote_command_queued_at
     _require_bridge_access(x_mt5_bridge_token)
     if not isinstance(payload.get("connected"), bool) or not isinstance(payload.get("running"), bool):
         raise HTTPException(status_code=422, detail="EA heartbeat must include boolean connected and running fields")
@@ -389,16 +397,24 @@ def receive_ea_heartbeat(
         if _remote_pending_command and _remote_command_delivered_at and received_at >= _remote_command_delivered_at:
             _remote_pending_command = ""
             _remote_command_delivered_at = 0.0
+            _remote_command_queued_at = 0.0
     return {"received": True}
 
 
 @app.get("/api/bridge/command", response_class=PlainTextResponse)
 def poll_ea_command(x_mt5_bridge_token: str = Header(default="", alias="X-MT5-Bridge-Token")) -> str:
-    global _remote_command_delivered_at
+    global _remote_pending_command, _remote_command_delivered_at, _remote_command_queued_at
     _require_bridge_access(x_mt5_bridge_token)
     now = time.time()
     with _remote_bridge_lock:
-        if _remote_pending_command and now - _remote_command_delivered_at >= 5:
+        if _remote_pending_command and now - _remote_command_queued_at > 30:
+            _remote_pending_command = ""
+            _remote_command_delivered_at = 0.0
+            _remote_command_queued_at = 0.0
+        if (_remote_pending_command and _remote_snapshot is not None
+                and now - _remote_received_at <= STATUS_MAX_AGE_SECONDS
+                and bool(_remote_snapshot.get("connected"))
+                and now - _remote_command_delivered_at >= 5):
             _remote_command_delivered_at = now
             return _remote_pending_command
     return "NONE"
