@@ -316,8 +316,7 @@ void GFWriteStatusFile()
       symbols_json += "{\"name\":\"Reward/risk minimum\",\"passed\":" + (item.reward_risk_acceptable ? "true" : "false") + ",\"applicable\":" + (item.reward_risk_applicable ? "true" : "false") + "},";
       symbols_json += "{\"name\":\"Target clearance\",\"passed\":" + (item.target_clearance_acceptable ? "true" : "false") + ",\"applicable\":" + (item.target_clearance_applicable ? "true" : "false") + "},";
       symbols_json += "{\"name\":\"Setup score minimum\",\"passed\":" + (item.score_acceptable ? "true" : "false") + ",\"applicable\":" + (item.score_applicable ? "true" : "false") + "},";
-      symbols_json += "{\"name\":\"Global risk and safety limits\",\"passed\":" +
-         (item.risk_limits_available ? "true" : "false") + "}]}";
+      symbols_json += "{\"name\":\"Global risk and safety limits\",\"passed\":" + (item.risk_limits_available ? "true" : "false") + "}]}";
    }
    symbols_json += "]";
    string protection = "";
@@ -344,7 +343,8 @@ void GFWriteStatusFile()
       ",\"daily_pnl\":" + DoubleToString(g_closed_today + g_floating, 2) +
       ",\"gold_tp\":" + DoubleToString(g_gold_tp_distance, 2) +
       ",\"gold_sl\":" + DoubleToString(g_gold_sl_distance, 2) +
-      ",\"strategy\":\"M15 EMA trend pullback\",\"symbols\":" + symbols_json + "}";
+      ",\"strategy\":\"M15 EMA trend pullback\",\"symbols\":" + symbols_json +
+      ",\"market_tags\":" + market_tags_json + "}";
    if(file != INVALID_HANDLE)
    {
       FileWriteString(file, status);
