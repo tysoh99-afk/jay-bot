@@ -45,16 +45,6 @@ _remote_command_delivered_at = 0.0
 _remote_command_queued_at = 0.0
 
 
-def _require_dashboard_access(token: str) -> None:
-    expected = os.getenv("DASHBOARD_ACCESS_TOKEN", "")
-    if not expected:
-        if os.getenv("RENDER"):
-            raise HTTPException(status_code=503, detail="DASHBOARD_ACCESS_TOKEN is not configured")
-        return
-    if not secrets.compare_digest(token, expected):
-        raise HTTPException(status_code=401, detail="Dashboard access token is invalid")
-
-
 def _require_bridge_access(token: str) -> None:
     expected = os.getenv("MT5_BRIDGE_TOKEN", "")
     if not expected:
@@ -345,15 +335,13 @@ def dashboard_page() -> FileResponse:
 
 @app.get("/status")
 @app.get("/api/status")
-def monitor_status(authorization: str = Header(default="")) -> dict[str, Any]:
-    _require_dashboard_access(authorization.removeprefix("Bearer ").strip())
+def monitor_status() -> dict[str, Any]:
     return read_ea_status()
 
 
 @app.post("/control")
 @app.post("/api/control")
-def control_ea(payload: dict[str, str], authorization: str = Header(default="")) -> dict[str, Any]:
-    _require_dashboard_access(authorization.removeprefix("Bearer ").strip())
+def control_ea(payload: dict[str, str]) -> dict[str, Any]:
     action = (payload.get("action") or "").strip().upper()
     if action not in {"START", "STOP"}:
         raise HTTPException(status_code=400, detail="Action must be START or STOP")
@@ -515,9 +503,7 @@ def market_news(refresh: bool = False) -> dict[str, Any]:
 @app.post("/api/news/analyze")
 def analyze_market_news(
     request: AssistantQuestion,
-    authorization: str = Header(default=""),
 ) -> dict[str, Any]:
-    _require_dashboard_access(authorization.removeprefix("Bearer ").strip())
     api_key = os.getenv("OPENAI_API_KEY", "")
     if not api_key:
         raise HTTPException(
@@ -606,8 +592,7 @@ def latest_tradingview_signal(
 
 
 @app.post("/assistant")
-def assistant(request: AssistantQuestion, authorization: str = Header(default="")) -> dict[str, Any]:
-    _require_dashboard_access(authorization.removeprefix("Bearer ").strip())
+def assistant(request: AssistantQuestion) -> dict[str, Any]:
     api_key = os.getenv("OPENAI_API_KEY", "")
     if not api_key:
         raise HTTPException(
