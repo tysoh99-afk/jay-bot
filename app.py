@@ -204,14 +204,6 @@ def read_ea_status() -> dict[str, Any]:
         if snapshot is not None:
             snapshot["updated_epoch"] = _remote_received_at
     if snapshot is None:
-        path = _common_files_directory() / "GoldFirstBotStatus.json"
-        try:
-            snapshot = json.loads(path.read_text(encoding="utf-8-sig"))
-            if not isinstance(snapshot, dict):
-                raise ValueError("EA status snapshot is not a JSON object")
-        except (OSError, json.JSONDecodeError, ValueError) as error:
-            snapshot = None
-    if snapshot is None:
         if os.getenv("MT5_BRIDGE_TOKEN"):
             return {
                 "bot_status": "DISCONNECTED",
@@ -230,6 +222,14 @@ def read_ea_status() -> dict[str, Any]:
                     "Attach GoldFirstBot in MT5 and configure its cloud bridge URL and token"
                 ],
             }
+        path = _common_files_directory() / "GoldFirstBotStatus.json"
+        try:
+            snapshot = json.loads(path.read_text(encoding="utf-8-sig"))
+            if not isinstance(snapshot, dict):
+                raise ValueError("EA status snapshot is not a JSON object")
+        except (OSError, json.JSONDecodeError, ValueError) as error:
+            snapshot = None
+    if snapshot is None:
         market = _read_market_tags()
         market_tags = market["tags"]
         market_age = max(

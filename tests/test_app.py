@@ -261,6 +261,19 @@ def test_status_handles_mt5_client_initialization_failure(monkeypatch, tmp_path)
     assert response.json()["warnings"] == ["MetaTrader5 is not installed"]
 
 
+def test_hosted_status_waits_for_ea_heartbeat_without_local_mt5(monkeypatch) -> None:
+    monkeypatch.setenv("MT5_BRIDGE_TOKEN", "bridge-secret")
+    monkeypatch.setenv("DASHBOARD_ACCESS_TOKEN", "dashboard-secret")
+    monkeypatch.setattr(app_module, "_remote_snapshot", None)
+    monkeypatch.setattr(app_module, "_read_market_tags", lambda: (_ for _ in ()).throw(AssertionError()))
+
+    response = client.get("/api/status", headers={"Authorization": "Bearer dashboard-secret"})
+
+    assert response.status_code == 200
+    assert response.json()["error"] == "Waiting for the MT5 EA cloud heartbeat"
+    assert "Attach GoldFirstBot" in response.json()["warnings"][0]
+
+
 def test_status_marks_old_heartbeat_stale(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("MT5_COMMON_FILES_DIR", str(tmp_path))
     _write_ea_snapshot(tmp_path, updated_epoch=time.time() - 30)
