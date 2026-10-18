@@ -15,7 +15,7 @@ from typing import Any
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from openai import APIError, OpenAI
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -37,6 +37,29 @@ MARKET_TAG_CACHE_SECONDS = 4
 MARKET_TAG_SYMBOLS = ("XAUUSD", "EURUSD", "GBPUSD", "USDJPY")
 _market_tag_lock = threading.Lock()
 _market_tag_cache: dict[str, Any] = {"fetched_epoch": 0.0, "connected": False, "tags": []}
+_remote_bridge_lock = threading.Lock()
+_remote_snapshot: dict[str, Any] | None = None
+_remote_received_at = 0.0
+_remote_pending_command = ""
+_remote_command_delivered_at = 0.0
+
+
+def _require_dashboard_access(token: str) -> None:
+    expected = os.getenv("DASHBOARD_ACCESS_TOKEN", "")
+    if not expected:
+        if os.getenv("RENDER"):
+            raise HTTPException(status_code=503, detail="DASHBOARD_ACCESS_TOKEN is not configured")
+        return
+    if not secrets.compare_digest(token, expected):
+        raise HTTPException(status_code=401, detail="Dashboard access token is invalid")
+
+
+def _require_bridge_access(token: str) -> None:
+    expected = os.getenv("MT5_BRIDGE_TOKEN", "")
+    if not expected:
+        raise HTTPException(status_code=503, detail="MT5_BRIDGE_TOKEN is not configured")
+    if not secrets.compare_digest(token, expected):
+        raise HTTPException(status_code=401, detail="MT5 bridge token is invalid")
 
 
 def _openai_failure_detail(error: APIError) -> str:
@@ -90,6 +113,9 @@ def _recent_trade_history() -> list[dict[str, str]]:
 
 
 def _pending_ea_command() -> str:
+    with _remote_bridge_lock:
+        if _remote_pending_command:
+            return _remote_pending_command
     try:
         command = (_common_files_directory() / "GoldFirstBot.command").read_text(encoding="ascii").strip().upper()
     except OSError:
@@ -166,12 +192,20 @@ def _read_market_tags() -> dict[str, Any]:
 
 
 def read_ea_status() -> dict[str, Any]:
-    path = _common_files_directory() / "GoldFirstBotStatus.json"
-    try:
-        snapshot = json.loads(path.read_text(encoding="utf-8-sig"))
-        if not isinstance(snapshot, dict):
-            raise ValueError("EA status snapshot is not a JSON object")
-    except (OSError, json.JSONDecodeError, ValueError) as error:
+    with _remote_bridge_lock:
+        remote_snapshot = _remote_snapshot is not None
+        snapshot = dict(_remote_snapshot) if remote_snapshot else None
+        if snapshot is not None:
+            snapshot["updated_epoch"] = _remote_received_at
+    if snapshot is None:
+        path = _common_files_directory() / "GoldFirstBotStatus.json"
+        try:
+            snapshot = json.loads(path.read_text(encoding="utf-8-sig"))
+            if not isinstance(snapshot, dict):
+                raise ValueError("EA status snapshot is not a JSON object")
+        except (OSError, json.JSONDecodeError, ValueError) as error:
+            snapshot = None
+    if snapshot is None:
         market = _read_market_tags()
         market_tags = market["tags"]
         market_age = max(
@@ -231,8 +265,13 @@ def read_ea_status() -> dict[str, Any]:
         warnings.append(error)
     if data_state != "LIVE":
         warnings.append(data_state)
-    market = _read_market_tags()
-    market_tags = market["tags"] if market["connected"] else []
+    if remote_snapshot:
+        market_tags = snapshot.get("market_tags", [])
+        if not isinstance(market_tags, list):
+            market_tags = []
+    else:
+        market = _read_market_tags()
+        market_tags = market["tags"] if market["connected"] else []
     market_age = max(
         (max(0.0, time.time() - float(tag["quote_epoch"])) for tag in market_tags if "quote_epoch" in tag),
         default=None,
@@ -300,26 +339,72 @@ def dashboard_page() -> FileResponse:
 
 @app.get("/status")
 @app.get("/api/status")
-def monitor_status() -> dict[str, Any]:
+def monitor_status(authorization: str = Header(default="")) -> dict[str, Any]:
+    _require_dashboard_access(authorization.removeprefix("Bearer ").strip())
     return read_ea_status()
 
 
 @app.post("/control")
 @app.post("/api/control")
-def control_ea(payload: dict[str, str]) -> dict[str, Any]:
+def control_ea(payload: dict[str, str], authorization: str = Header(default="")) -> dict[str, Any]:
+    _require_dashboard_access(authorization.removeprefix("Bearer ").strip())
     action = (payload.get("action") or "").strip().upper()
     if action not in {"START", "STOP"}:
         raise HTTPException(status_code=400, detail="Action must be START or STOP")
     current = read_ea_status()
     if not current.get("mt5_connected", False):
         raise HTTPException(status_code=409, detail="MT5 must be connected before queueing EA controls")
-    try:
-        _write_ea_command(action)
-    except OSError as error:
-        raise HTTPException(status_code=503, detail=f"Could not write EA command: {error}") from error
+    if os.getenv("RENDER"):
+        if current.get("data_state") != "LIVE":
+            raise HTTPException(status_code=409, detail="A recent EA heartbeat is required for remote controls")
+        global _remote_pending_command, _remote_command_delivered_at
+        with _remote_bridge_lock:
+            _remote_pending_command = action
+            _remote_command_delivered_at = 0.0
+    else:
+        try:
+            _write_ea_command(action)
+        except OSError as error:
+            raise HTTPException(status_code=503, detail=f"Could not write EA command: {error}") from error
     message = "Waiting for EA acknowledgement" if current["data_state"] == "LIVE" else \
         "MT5 is connected; attach GoldFirstBot so it can consume this command"
     return {"queued": True, "requested_action": action, "message": message}
+
+
+@app.post("/api/bridge/heartbeat")
+def receive_ea_heartbeat(
+    payload: dict[str, Any],
+    x_mt5_bridge_token: str = Header(default="", alias="X-MT5-Bridge-Token"),
+) -> dict[str, Any]:
+    global _remote_snapshot, _remote_received_at, _remote_pending_command, _remote_command_delivered_at
+    _require_bridge_access(x_mt5_bridge_token)
+    if not isinstance(payload.get("connected"), bool) or not isinstance(payload.get("running"), bool):
+        raise HTTPException(status_code=422, detail="EA heartbeat must include boolean connected and running fields")
+    received_at = time.time()
+    snapshot = dict(payload)
+    snapshot["updated_epoch"] = received_at
+    with _remote_bridge_lock:
+        _remote_snapshot = snapshot
+        _remote_received_at = received_at
+        if _remote_pending_command == "START" and snapshot["running"]:
+            _remote_pending_command = ""
+            _remote_command_delivered_at = 0.0
+        elif _remote_pending_command == "STOP" and not snapshot["running"]:
+            _remote_pending_command = ""
+            _remote_command_delivered_at = 0.0
+    return {"received": True}
+
+
+@app.get("/api/bridge/command", response_class=PlainTextResponse)
+def poll_ea_command(x_mt5_bridge_token: str = Header(default="", alias="X-MT5-Bridge-Token")) -> str:
+    global _remote_command_delivered_at
+    _require_bridge_access(x_mt5_bridge_token)
+    now = time.time()
+    with _remote_bridge_lock:
+        if _remote_pending_command and now - _remote_command_delivered_at >= 5:
+            _remote_command_delivered_at = now
+            return _remote_pending_command
+    return "NONE"
 
 
 @app.post("/trade/multi")
@@ -390,7 +475,11 @@ def market_news(refresh: bool = False) -> dict[str, Any]:
 
 @app.post("/news/analyze")
 @app.post("/api/news/analyze")
-def analyze_market_news(request: AssistantQuestion) -> dict[str, Any]:
+def analyze_market_news(
+    request: AssistantQuestion,
+    authorization: str = Header(default=""),
+) -> dict[str, Any]:
+    _require_dashboard_access(authorization.removeprefix("Bearer ").strip())
     api_key = os.getenv("OPENAI_API_KEY", "")
     if not api_key:
         raise HTTPException(
@@ -479,7 +568,8 @@ def latest_tradingview_signal(
 
 
 @app.post("/assistant")
-def assistant(request: AssistantQuestion) -> dict[str, Any]:
+def assistant(request: AssistantQuestion, authorization: str = Header(default="")) -> dict[str, Any]:
+    _require_dashboard_access(authorization.removeprefix("Bearer ").strip())
     api_key = os.getenv("OPENAI_API_KEY", "")
     if not api_key:
         raise HTTPException(

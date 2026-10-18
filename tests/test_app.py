@@ -386,6 +386,58 @@ def test_stop_can_queue_when_mt5_is_connected_but_ea_is_not_attached(monkeypatch
     assert client.get("/api/status").json()["pending_command"] == "STOP"
 
 
+def test_remote_bridge_authenticates_heartbeat_and_dashboard_commands(monkeypatch) -> None:
+    monkeypatch.setenv("MT5_BRIDGE_TOKEN", "bridge-secret")
+    monkeypatch.setenv("DASHBOARD_ACCESS_TOKEN", "dashboard-secret")
+    monkeypatch.setattr(app_module, "_remote_snapshot", None)
+    monkeypatch.setattr(app_module, "_remote_received_at", 0.0)
+    monkeypatch.setattr(app_module, "_remote_pending_command", "")
+    monkeypatch.setattr(app_module, "_remote_command_delivered_at", 0.0)
+    snapshot = {
+        "connected": True,
+        "running": False,
+        "status": "STOPPED - PRESS START",
+        "symbols": [],
+        "daily_trades": 0,
+        "daily_limit": 20,
+        "positions": 0,
+        "max_positions": 5,
+    }
+
+    assert client.post("/api/bridge/heartbeat", json=snapshot).status_code == 401
+    assert client.get("/api/status").status_code == 401
+    heartbeat = client.post(
+        "/api/bridge/heartbeat",
+        json=snapshot,
+        headers={"X-MT5-Bridge-Token": "bridge-secret"},
+    )
+    assert heartbeat.status_code == 200
+    assert client.get("/api/status", headers={"Authorization": "Bearer dashboard-secret"}).json()["data_state"] == "LIVE"
+
+    queued = client.post(
+        "/api/control",
+        json={"action": "START"},
+        headers={"Authorization": "Bearer dashboard-secret"},
+    )
+    assert queued.status_code == 200
+    command_headers = {"X-MT5-Bridge-Token": "bridge-secret"}
+    command = client.get("/api/bridge/command", headers=command_headers)
+    assert command.text == "START"
+
+    snapshot.update(running=True, status="RUNNING - WAITING FOR ENTRY")
+    acknowledged = client.post("/api/bridge/heartbeat", json=snapshot, headers=command_headers)
+    assert acknowledged.status_code == 200
+    assert client.get("/api/bridge/command", headers=command_headers).text == "NONE"
+
+
+def test_openai_news_analysis_requires_dashboard_token(monkeypatch) -> None:
+    monkeypatch.setenv("DASHBOARD_ACCESS_TOKEN", "dashboard-secret")
+
+    response = client.post("/api/news/analyze", json={"question": "Analyze gold"})
+
+    assert response.status_code == 401
+
+
 def test_dashboard_is_served_from_index_html() -> None:
     response = client.get("/")
 

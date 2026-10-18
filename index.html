@@ -32,7 +32,15 @@
       line-height: 1.45;
     }
     button { font: inherit; }
-    .shell { width: min(1440px, 100%); margin: 0 auto; padding: 24px clamp(16px, 3vw, 42px) 40px; }
+    .shell { display: none; width: min(1440px, 100%); margin: 0 auto; padding: 24px clamp(16px, 3vw, 42px) 40px; }
+    body.dashboard-authorized .shell { display: block; }
+    .auth-gate { width: min(420px, calc(100% - 32px)); margin: min(18vh, 150px) auto 0; padding: 22px; border: 1px solid var(--line); background: var(--panel); }
+    .auth-gate h1 { margin: 0 0 8px; font-size: 20px; }
+    .auth-gate p { margin: 0 0 16px; color: var(--muted); }
+    .auth-gate form { display: grid; gap: 10px; }
+    .auth-gate input { min-width: 0; height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 3px; color: var(--ink); background: var(--base); font: 12px var(--mono); }
+    .auth-gate button { height: 38px; border: 1px solid var(--green); border-radius: 3px; color: #152219; background: var(--green); cursor: pointer; font: 600 11px var(--mono); }
+    .auth-error { min-height: 18px; color: var(--red); font-size: 11px; }
     .masthead { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 19px; border-bottom: 1px solid var(--line); }
     .brand { display: flex; align-items: center; gap: 13px; }
     .brand-mark { width: 34px; height: 34px; display: grid; place-items: center; color: #142018; background: var(--green); font: 700 15px var(--mono); }
@@ -151,6 +159,15 @@
   </style>
 </head>
 <body>
+  <section class="auth-gate" id="auth-gate" aria-labelledby="auth-title" hidden>
+    <h1 id="auth-title">JayTrade dashboard</h1>
+    <p>Enter the dashboard access token configured in Render.</p>
+    <form id="auth-form">
+      <input id="dashboard-token" type="password" autocomplete="current-password" aria-label="Dashboard access token" required>
+      <button type="submit">UNLOCK DASHBOARD</button>
+      <div class="auth-error" id="auth-error" role="status"></div>
+    </form>
+  </section>
   <main class="shell">
     <header class="masthead">
       <div class="brand">
@@ -228,9 +245,52 @@
   <script>
     const byId = (id) => document.getElementById(id);
     const show = (id, value) => { byId(id).textContent = value ?? "--"; };
+    const localDashboard = ["localhost", "127.0.0.1", "::1"].includes(location.hostname);
     let lastPayload = null;
     let toastTimer;
     let newsTimer;
+
+    function privateHeaders(headers = {}) {
+      const token = sessionStorage.getItem("jaytrade-dashboard-token");
+      return { ...headers, ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+    }
+
+    function startDashboard() {
+      document.body.classList.add("dashboard-authorized");
+      byId("auth-gate").hidden = true;
+      byId("start-button").addEventListener("click", () => control("START"));
+      byId("stop-button").addEventListener("click", () => control("STOP"));
+      byId("refresh-news").addEventListener("click", () => refreshNews(true));
+      byId("analyze-news").addEventListener("click", analyzeNews);
+      refresh();
+      setInterval(refresh, 2000);
+      refreshNews();
+      newsTimer = setInterval(refreshNews, 60000);
+    }
+
+    async function unlockDashboard(token) {
+      const response = await fetch("/api/status", {
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error(response.status === 503
+        ? "Set DASHBOARD_ACCESS_TOKEN in Render before unlocking."
+        : "Dashboard access token was not accepted.");
+      sessionStorage.setItem("jaytrade-dashboard-token", token);
+      startDashboard();
+    }
+
+    byId("auth-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const token = byId("dashboard-token").value.trim();
+      byId("auth-error").textContent = "Checking access...";
+      try {
+        await unlockDashboard(token);
+        byId("dashboard-token").value = "";
+      } catch (error) {
+        byId("auth-error").textContent = String(error.message || error);
+      }
+    });
 
     function setLed(element, tone) {
       element.className = `led ${tone || ""}`.trim();
@@ -338,7 +398,7 @@
       try {
         const response = await fetch("/api/news/analyze", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: privateHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ question: "Summarize the current market factors in these headlines that may matter to gold (XAUUSD). Separate reported facts from possible channels, identify conflicts and uncertainty, and avoid buy/sell instructions." })
         });
         const result = await response.json();
@@ -419,7 +479,7 @@
 
     async function refresh() {
       try {
-        const response = await fetch("/api/status", { cache: "no-store" });
+        const response = await fetch("/api/status", { cache: "no-store", headers: privateHeaders() });
         if (!response.ok) throw new Error(`API returned ${response.status}`);
         updateStatus(await response.json());
       } catch (error) {
@@ -431,7 +491,7 @@
       try {
         const response = await fetch("/api/control", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: privateHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ action })
         });
         const result = await response.json();
@@ -451,14 +511,18 @@
       toastTimer = setTimeout(() => toast.classList.remove("show"), 3500);
     }
 
-    byId("start-button").addEventListener("click", () => control("START"));
-    byId("stop-button").addEventListener("click", () => control("STOP"));
-    byId("refresh-news").addEventListener("click", () => refreshNews(true));
-    byId("analyze-news").addEventListener("click", analyzeNews);
-    refresh();
-    setInterval(refresh, 2000);
-    refreshNews();
-    newsTimer = setInterval(refreshNews, 60000);
+    if (localDashboard) {
+      startDashboard();
+    } else {
+      byId("auth-gate").hidden = false;
+      const savedToken = sessionStorage.getItem("jaytrade-dashboard-token");
+      if (savedToken) {
+        unlockDashboard(savedToken).catch((error) => {
+          sessionStorage.removeItem("jaytrade-dashboard-token");
+          byId("auth-error").textContent = String(error.message || error);
+        });
+      }
+    }
   </script>
 </body>
 </html>

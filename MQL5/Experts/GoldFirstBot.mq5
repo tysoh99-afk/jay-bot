@@ -36,6 +36,8 @@ input int InpScanIntervalSeconds = 5;
 input int InpSymbolCooldownMinutes = 15;
 input int InpSessionStartHour = 7;
 input int InpSessionEndHour = 20;
+input string InpCloudBridgeUrl = "https://jaybot-lsoj.onrender.com";
+input string InpCloudBridgeToken = "";
 input bool InpUseSessionFilter = true;
 input bool InpUseADX = true;
 input int InpADXMinimum = 20;
@@ -239,14 +241,55 @@ string GFJsonEscape(string value)
    return value;
 }
 
+bool GFPostCloudStatus(const string status_json)
+{
+   if(StringLen(InpCloudBridgeUrl) == 0 || StringLen(InpCloudBridgeToken) == 0)
+      return false;
+   char request_data[];
+   char response_data[];
+   string response_headers;
+   StringToCharArray(status_json, request_data, 0, WHOLE_ARRAY, CP_UTF8);
+   if(ArraySize(request_data) > 0)
+      ArrayResize(request_data, ArraySize(request_data) - 1);
+   string headers = "Content-Type: application/json\r\nX-MT5-Bridge-Token: " +
+                    InpCloudBridgeToken + "\r\n";
+   int response_code = WebRequest("POST", InpCloudBridgeUrl + "/api/bridge/heartbeat",
+                                  headers, 4000, request_data, response_data, response_headers);
+   if(response_code != 200)
+   {
+      g_last_error = "Cloud heartbeat failed: " + IntegerToString(response_code);
+      return false;
+   }
+   return true;
+}
+
+string GFPollCloudCommand()
+{
+   if(StringLen(InpCloudBridgeUrl) == 0 || StringLen(InpCloudBridgeToken) == 0)
+      return "";
+   char request_data[];
+   char response_data[];
+   string response_headers;
+   string headers = "X-MT5-Bridge-Token: " + InpCloudBridgeToken + "\r\n";
+   int response_code = WebRequest("GET", InpCloudBridgeUrl + "/api/bridge/command",
+                                  headers, 2500, request_data, response_data, response_headers);
+   if(response_code != 200)
+   {
+      if(response_code != -1)
+         g_last_error = "Cloud command poll failed: " + IntegerToString(response_code);
+      return "";
+   }
+   string command = CharArrayToString(response_data, 0, -1, CP_UTF8);
+   StringTrimLeft(command);
+   StringTrimRight(command);
+   return command;
+}
+
 void GFWriteStatusFile()
 {
    int file = FileOpen("GoldFirstBotStatus.json", FILE_WRITE | FILE_TXT | FILE_COMMON | FILE_ANSI);
    if(file == INVALID_HANDLE)
-   {
       g_last_error = "Cannot write MT5 Common Files status snapshot";
-      return;
-   }
 
    string timestamp = TimeToString(TimeTradeServer(), TIME_DATE | TIME_SECONDS);
    string symbols_json = "[";
@@ -302,21 +345,32 @@ void GFWriteStatusFile()
       ",\"gold_tp\":" + DoubleToString(g_gold_tp_distance, 2) +
       ",\"gold_sl\":" + DoubleToString(g_gold_sl_distance, 2) +
       ",\"strategy\":\"M15 EMA trend pullback\",\"symbols\":" + symbols_json + "}";
-   FileWriteString(file, status);
-   FileClose(file);
+   if(file != INVALID_HANDLE)
+   {
+      FileWriteString(file, status);
+      FileClose(file);
+   }
+   GFPostCloudStatus(status);
 }
 
 void GFProcessDashboardCommand()
 {
    string filename = "GoldFirstBot.command";
-   if(!FileIsExist(filename, FILE_COMMON))
+   string command = "";
+   if(FileIsExist(filename, FILE_COMMON))
+   {
+      int file = FileOpen(filename, FILE_READ | FILE_TXT | FILE_COMMON | FILE_ANSI);
+      if(file != INVALID_HANDLE)
+      {
+         command = FileReadString(file);
+         FileClose(file);
+         FileDelete(filename, FILE_COMMON);
+      }
+   }
+   else
+      command = GFPollCloudCommand();
+   if(command == "")
       return;
-   int file = FileOpen(filename, FILE_READ | FILE_TXT | FILE_COMMON | FILE_ANSI);
-   if(file == INVALID_HANDLE)
-      return;
-   string command = FileReadString(file);
-   FileClose(file);
-   FileDelete(filename, FILE_COMMON);
    StringToUpper(command);
 
    if(command == "START")
