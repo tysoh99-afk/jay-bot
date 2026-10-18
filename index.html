@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111916">
+  <title>JayTrade | MT5 Monitor</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #e6ece7;
+      --muted: #9ba9a0;
+      --dim: #65756b;
+      --base: #101713;
+      --panel: #17211b;
+      --line: #304137;
+      --green: #91d4a4;
+      --amber: #efbd64;
+      --red: #ee827c;
+      --blue: #80bfd0;
+      --mono: "IBM Plex Mono", "Cascadia Code", Consolas, monospace;
+      --sans: "Aptos", "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background-color: var(--base);
+      background-image: repeating-linear-gradient(135deg, transparent 0 30px, rgba(166, 196, 174, .025) 31px 32px);
+      font-family: var(--sans);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    button { font: inherit; }
+    .shell { width: min(1440px, 100%); margin: 0 auto; padding: 24px clamp(16px, 3vw, 42px) 40px; }
+    .masthead { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 19px; border-bottom: 1px solid var(--line); }
+    .brand { display: flex; align-items: center; gap: 13px; }
+    .brand-mark { width: 34px; height: 34px; display: grid; place-items: center; color: #142018; background: var(--green); font: 700 15px var(--mono); }
+    .brand-name { font: 600 14px var(--mono); letter-spacing: 0; }
+    .brand-meta, .eyebrow, .metric-label, .section-kicker, .check-state, .mono { font-family: var(--mono); letter-spacing: 0; }
+    .brand-meta { color: var(--muted); font-size: 11px; }
+    .head-right { display: flex; align-items: center; gap: 20px; }
+    .freshness { color: var(--muted); font: 11px var(--mono); }
+    .freshness strong { color: var(--ink); font-weight: 500; }
+    .led { display: inline-block; width: 9px; height: 9px; margin-right: 8px; border-radius: 50%; background: var(--dim); box-shadow: 0 0 0 3px rgba(101,117,107,.14); vertical-align: 0; }
+    .led.live { background: var(--green); box-shadow: 0 0 0 3px rgba(145,212,164,.15); }
+    .led.warn { background: var(--amber); box-shadow: 0 0 0 3px rgba(239,189,100,.15); }
+    .led.error { background: var(--red); box-shadow: 0 0 0 3px rgba(238,130,124,.15); }
+    .title-row { display: flex; align-items: end; justify-content: space-between; gap: 24px; padding: 28px 0 22px; }
+    h1 { margin: 5px 0 0; font-size: clamp(24px, 4vw, 34px); line-height: 1.1; font-weight: 550; letter-spacing: 0; }
+    .eyebrow, .section-kicker { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+    .controls { display: flex; gap: 8px; }
+    .controls button { min-width: 94px; height: 36px; padding: 0 14px; border: 1px solid var(--line); border-radius: 3px; color: var(--ink); background: #202b24; cursor: pointer; font: 600 11px var(--mono); }
+    .controls button:hover:not(:disabled) { border-color: var(--green); }
+    .controls button:disabled { opacity: .4; cursor: not-allowed; }
+    .controls .start { color: #152219; background: var(--green); border-color: var(--green); }
+    .controls .stop { color: #2b1615; background: var(--red); border-color: var(--red); }
+    .status-band { display: grid; grid-template-columns: minmax(220px, 1.2fr) repeat(3, minmax(120px, .8fr)); align-items: stretch; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: rgba(23,33,27,.76); }
+    .status-main, .status-cell { min-height: 82px; padding: 15px 18px; border-right: 1px solid var(--line); }
+    .status-main { display: flex; align-items: center; gap: 14px; }
+    .status-main .led { width: 12px; height: 12px; flex: 0 0 auto; margin: 0 0 0 2px; }
+    .status-value { font: 600 16px var(--mono); line-height: 1.3; }
+    .status-sub { margin-top: 4px; color: var(--muted); font: 10px var(--mono); }
+    .status-cell:last-child { border-right: 0; }
+    .metric-label { color: var(--muted); font-size: 9px; text-transform: uppercase; }
+    .metric-value { margin-top: 7px; font: 500 16px var(--mono); }
+    .metric-value.small { font-size: 13px; }
+    .metrics { display: grid; grid-template-columns: repeat(6, 1fr); margin: 18px 0 25px; border: 1px solid var(--line); background: rgba(23,33,27,.52); }
+    .metric { min-height: 77px; padding: 13px 15px; border-right: 1px solid var(--line); }
+    .metric:last-child { border-right: 0; }
+    .market-tags { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin: 15px 0 22px; background: var(--line); border: 1px solid var(--line); }
+    .market-tag { min-width: 0; padding: 12px 14px; background: var(--panel); }
+    .tag-head { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font: 9px var(--mono); }
+    .tag-symbol { color: var(--ink); font-size: 11px; }
+    .tag-prices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 9px; font: 11px var(--mono); }
+    .tag-prices span { min-width: 0; overflow-wrap: anywhere; }
+    .tag-prices small { display: block; margin-bottom: 2px; color: var(--muted); font: 8px var(--mono); }
+    .tag-meta { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; color: var(--muted); font: 9px var(--mono); }
+    .news-toolbar { display: flex; align-items: center; gap: 8px; }
+    .news-toolbar button { min-height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: 3px; color: var(--ink); background: #202b24; cursor: pointer; font: 600 9px var(--mono); }
+    .news-toolbar button:hover:not(:disabled) { border-color: var(--green); }
+    .news-toolbar button:disabled { opacity: .5; cursor: wait; }
+    .news-list { display: grid; }
+    .news-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 16px; min-width: 0; padding: 8px 0; border-bottom: 1px solid var(--line); }
+    .news-meta { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font: 9px var(--mono); }
+    .news-title { margin: 0; font-size: 11px; line-height: 1.4; font-weight: 500; }
+    .news-title a { color: var(--ink); text-decoration-color: var(--dim); text-underline-offset: 3px; }
+    .news-title a:hover { color: var(--green); }
+    .news-analysis { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+    .news-analysis-output { margin-top: 10px; color: #d3ded5; font-size: 12px; white-space: pre-wrap; }
+    .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 0 0 10px; border-bottom: 1px solid var(--line); }
+    h2 { margin: 0; font-size: 15px; font-weight: 550; }
+    .section-note { color: var(--muted); font: 10px var(--mono); }
+    .symbols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 26px; }
+    .symbol-panel { padding: 17px 0 18px; border-bottom: 1px solid var(--line); min-width: 0; }
+    .symbol-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+    .symbol-name { font: 600 14px var(--mono); }
+    .symbol-direction { color: var(--amber); font: 10px var(--mono); }
+    .symbol-direction.blocked { color: var(--red); }
+    .checklist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
+    .check { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; padding: 6px 0; border-bottom: 1px dotted rgba(101,117,107,.28); }
+    .check-name { color: #c8d2ca; font-size: 12px; overflow-wrap: anywhere; }
+    .check-state { flex: 0 0 auto; color: var(--muted); font-size: 9px; text-align: right; }
+    .check-state.pass { color: var(--green); }
+    .check-state.remaining { color: var(--amber); }
+    .check-state.blocked { color: var(--red); }
+    .check-state.na { color: var(--dim); }
+    .symbol-reason { margin: 10px 0 0; color: var(--muted); font-size: 11px; }
+    .lower { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(280px, .7fr); gap: 30px; margin-top: 28px; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th { padding: 10px 8px; color: var(--muted); text-align: left; font: 9px var(--mono); text-transform: uppercase; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    td { padding: 10px 8px; border-bottom: 1px solid rgba(48,65,55,.7); white-space: nowrap; }
+    .warnings { display: grid; gap: 8px; margin-top: 12px; }
+    .warning { padding: 9px 11px; border-left: 2px solid var(--amber); background: rgba(239,189,100,.07); color: #e6d4ae; font-size: 11px; overflow-wrap: anywhere; }
+    .warning.error { border-color: var(--red); background: rgba(238,130,124,.07); color: #f0c2bf; }
+    .setup-list { margin-top: 14px; border-top: 1px solid var(--line); }
+    .setup-item { display: flex; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid rgba(48,65,55,.7); color: #c8d2ca; font-size: 11px; }
+    .setup-item span:last-child { color: var(--muted); font: 9px var(--mono); text-align: right; }
+    .empty { color: var(--muted); font-size: 12px; padding: 18px 0; }
+    .toast { position: fixed; right: 20px; bottom: 20px; max-width: min(420px, calc(100vw - 40px)); padding: 12px 15px; border: 1px solid var(--line); border-radius: 3px; background: #202b24; color: var(--ink); font-size: 12px; opacity: 0; transform: translateY(8px); transition: opacity .18s ease, transform .18s ease; pointer-events: none; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .footer { display: flex; justify-content: space-between; gap: 16px; margin-top: 28px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font: 9px var(--mono); }
+    @media (max-width: 980px) { .metrics { grid-template-columns: repeat(3, 1fr); } .metric:nth-child(3) { border-right: 0; } .metric:nth-child(-n+3) { border-bottom: 1px solid var(--line); } }
+    @media (max-width: 680px) {
+      .shell { padding: 16px 14px 28px; }
+      .masthead { align-items: flex-start; }
+      .head-right { display: grid; gap: 6px; justify-items: end; }
+      .title-row { align-items: flex-start; flex-direction: column; padding: 22px 0 17px; }
+      .controls { width: 100%; }
+      .controls button { flex: 1; }
+      .status-band { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .status-main { grid-column: 1 / -1; border-bottom: 1px solid var(--line); }
+      .status-cell:nth-child(3) { border-right: 0; }
+      .status-cell:last-child { grid-column: 1 / -1; border-top: 1px solid var(--line); }
+      .metrics { grid-template-columns: repeat(2, 1fr); margin-top: 12px; }
+      .metric:nth-child(odd) { border-right: 1px solid var(--line); }
+      .metric:nth-child(even) { border-right: 0; }
+      .metric:nth-child(3) { border-right: 1px solid var(--line); }
+      .metric:nth-child(n+3) { border-bottom: 1px solid var(--line); }
+      .metric:nth-child(n+5) { border-bottom: 0; }
+      .symbols, .lower { grid-template-columns: 1fr; }
+      .news-item { grid-template-columns: 1fr; gap: 3px; }
+      .symbols { gap: 0; }
+      .market-tags { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .checklist { grid-template-columns: 1fr; }
+      .lower { gap: 26px; }
+      .footer { flex-direction: column; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="masthead">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">JT</div>
+        <div><div class="brand-name">JAYTRADE / MT5</div><div class="brand-meta">GOLD-FIRST SYSTEM MONITOR</div></div>
+      </div>
+      <div class="head-right">
+        <div class="freshness"><span class="led" id="connection-led"></span><strong id="connection-state">CONNECTING</strong></div>
+        <div class="freshness">LAST DATA <strong id="freshness">--</strong></div>
+      </div>
+    </header>
+
+    <section class="title-row">
+      <div><div class="eyebrow">NATIVE EXPERT ADVISOR / DEMO-FIRST</div><h1>Trading monitor</h1></div>
+      <div class="controls" aria-label="EA entry controls">
+        <button class="start" id="start-button" type="button" disabled>START</button>
+        <button class="stop" id="stop-button" type="button">STOP</button>
+      </div>
+    </section>
+
+    <section class="status-band" aria-live="polite">
+      <div class="status-main"><span class="led" id="status-led"></span><div><div class="metric-label">BOT STATUS</div><div class="status-value" id="bot-status">DISCONNECTED</div><div class="status-sub" id="status-detail">Waiting for EA heartbeat</div></div></div>
+      <div class="status-cell"><div class="metric-label">ANALYZING</div><div class="metric-value" id="current-symbol">--</div></div>
+      <div class="status-cell"><div class="metric-label">TREND / SIGNAL</div><div class="metric-value small" id="trend-signal">--</div></div>
+      <div class="status-cell"><div class="metric-label">STRATEGY</div><div class="metric-value small" id="strategy">--</div></div>
+    </section>
+
+    <section aria-labelledby="market-title">
+      <div class="section-heading" style="margin-top: 20px"><h2 id="market-title">Live market tags</h2><div class="section-note">MT5 QUOTES · READ-ONLY SAMPLE SIGNAL, NOT EA STRATEGY</div></div>
+      <div class="market-tags" id="market-tags"><div class="empty">Waiting for MT5 quote data.</div></div>
+    </section>
+
+    <section class="metrics" aria-label="Account and risk metrics">
+      <div class="metric"><div class="metric-label">EA POSITIONS</div><div class="metric-value" id="positions">-- / 5</div></div>
+      <div class="metric"><div class="metric-label">TRADES TODAY</div><div class="metric-value" id="daily-trades">-- / --</div></div>
+      <div class="metric"><div class="metric-label">GOLD TP / SL</div><div class="metric-value" id="gold-exits">-- / --</div></div>
+      <div class="metric"><div class="metric-label">EQUITY</div><div class="metric-value" id="equity">--</div></div>
+      <div class="metric"><div class="metric-label">TODAY P/L</div><div class="metric-value" id="daily-pnl">--</div></div>
+      <div class="metric"><div class="metric-label">CURRENT SPREAD</div><div class="metric-value" id="spread">--</div></div>
+    </section>
+
+    <section aria-labelledby="conditions-title">
+      <div class="section-heading"><h2 id="conditions-title">Entry conditions by symbol</h2><div class="section-note" id="condition-summary">LIVE EA INDICATOR VALUES / CLOSED CANDLE RULES</div></div>
+      <div class="symbols" id="symbols"><div class="empty">Waiting for strategy snapshot from MT5.</div></div>
+    </section>
+
+    <section class="lower">
+      <div>
+        <div class="section-heading"><h2>Recent closed trades</h2><div class="section-note">BROKER HISTORY / EA MAGIC NUMBER</div></div>
+        <div class="table-wrap"><table><thead><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Net P/L</th></tr></thead><tbody id="history"><tr><td class="empty" colspan="4">No trade history received.</td></tr></tbody></table></div>
+      </div>
+      <div>
+        <div class="section-heading"><h2>Warnings & setup</h2><div class="section-note">NO SYNTHETIC RESULTS</div></div>
+        <div class="warnings" id="warnings"><div class="empty">No warnings received.</div></div>
+        <div class="setup-list" id="setup-progress">
+          <div class="setup-item"><span>EA source</span><span id="source-progress">CHECKING</span></div>
+          <div class="setup-item"><span>EA compile</span><span id="compile-progress">CHECKING</span></div>
+          <div class="setup-item"><span>Live data bridge</span><span id="bridge-progress">WAITING FOR EA</span></div>
+          <div class="setup-item"><span>Strategy Tester</span><span>NOT RUN</span></div>
+          <div class="setup-item"><span>Demo forward test</span><span>NOT RUN</span></div>
+        </div>
+      </div>
+    </section>
+    <section aria-labelledby="news-title-heading" style="margin-top: 24px">
+      <div class="section-heading">
+        <div><h2 id="news-title-heading">Gold & market headlines</h2><div class="section-note" id="news-freshness">PUBLIC RSS · ADVISORY ONLY</div></div>
+        <div class="news-toolbar"><button id="refresh-news" type="button" title="Fetch current publisher headlines">REFRESH</button><button id="analyze-news" type="button" title="Analyze the full available news feed with AI">AI ANALYSIS</button></div>
+      </div>
+      <div class="news-list" id="news-list" aria-live="polite"><div class="empty">Loading headlines.</div></div>
+      <div class="news-analysis-output" id="news-analysis-output" role="status"></div>
+    </section>
+    <footer class="footer"><span>STATUS IS REPORTED BY THE NATIVE MT5 EA</span><span>LOCAL API · READ-ONLY MARKET DATA · NO CREDENTIALS EXPOSED</span></footer>
+  </main>
+  <div class="toast" id="toast" role="status"></div>
+  <script>
+    const byId = (id) => document.getElementById(id);
+    const show = (id, value) => { byId(id).textContent = value ?? "--"; };
+    let lastPayload = null;
+    let toastTimer;
+    let newsTimer;
+
+    function setLed(element, tone) {
+      element.className = `led ${tone || ""}`.trim();
+    }
+
+    function money(value) {
+      if (value === null || value === undefined || value === "") return "--";
+      return Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function updateStatus(data) {
+      lastPayload = data;
+      const live = data.data_state === "LIVE";
+      const mt5Connected = Boolean(data.mt5_connected ?? data.connected);
+      const stopped = data.bot_status === "STOPPED";
+      const blocked = Boolean(data.safety_block) || (data.warnings || []).length > 0;
+      const connectionError = String(data.bot_status || "").includes("CONNECTION ERROR");
+      show("connection-state", live ? "EA LIVE" : mt5Connected ? "MT5 CONNECTED · EA NOT ATTACHED" : data.data_state || "DISCONNECTED");
+      setLed(byId("connection-led"), live ? "live" : mt5Connected ? "warn" : "error");
+      show("bot-status", data.bot_status || "DISCONNECTED");
+      setLed(byId("status-led"), !mt5Connected || connectionError || stopped ? "error" : live ? (blocked ? "warn" : "live") : "warn");
+      show("status-detail", data.pending_command
+        ? `${data.pending_command} queued · waiting for EA attachment and acknowledgement`
+        : live ? (data.status || "MT5 heartbeat active")
+        : mt5Connected ? "Broker data is live; attach the EA for strategy status and START control"
+        : "EA heartbeat missing or stale");
+      const age = data.age_seconds ?? data.market_age_seconds;
+      show("freshness", age == null ? "--" : `${Math.floor(age)}s ago`);
+      const primaryTag = (data.market_tags || []).find((tag) => tag.symbol === "XAUUSD") || (data.market_tags || [])[0];
+      show("current-symbol", data.symbol && data.symbol !== "-" ? data.symbol : primaryTag ? `${primaryTag.symbol} · QUOTE` : "--");
+      const currentSymbolStatus = (data.symbols || []).find((item) => item.symbol === data.symbol);
+      const activeSymbol = currentSymbolStatus || (data.symbols || [])[0];
+      show("trend-signal", activeSymbol ? `${activeSymbol.trend} / ${activeSymbol.signal}` : primaryTag ? `SAMPLE ${primaryTag.sample_signal || "--"}` : "--");
+      show("strategy", data.strategy || (live ? "--" : "EA NOT ATTACHED"));
+      show("positions", `${data.positions ?? "--"} / ${data.max_positions ?? 5}`);
+      show("daily-trades", `${data.daily_trades ?? "--"} / ${data.daily_limit ?? "--"} · ${data.trades_remaining ?? "--"} LEFT`);
+      show("gold-exits", data.gold_tp == null ? "-- / --" : `${Number(data.gold_tp).toFixed(1)} / ${Number(data.gold_sl).toFixed(1)}`);
+      show("equity", data.equity == null ? "--" : money(data.equity));
+      show("daily-pnl", data.daily_pnl == null ? "--" : money(data.daily_pnl));
+      const spread = Number(data.spread) > 0 ? data.spread : currentSymbolStatus?.spread ?? primaryTag?.spread;
+      show("spread", spread == null ? "--" : Number(spread).toFixed(5));
+      byId("start-button").disabled = !mt5Connected || data.running || data.pending_command === "START";
+      byId("stop-button").disabled = !mt5Connected;
+      byId("start-button").title = !mt5Connected ? "Connect MT5 first" : live ? "Allow new EA entries" : "Queue START for the attached EA to consume";
+      byId("stop-button").title = live ? "Disable new EA entries; existing protection stays active" : "Queue STOP for the EA to consume when attached";
+      show("bridge-progress", live ? "LIVE" : data.data_state || "WAITING");
+      if (data.setup_progress) {
+        show("source-progress", data.setup_progress.source || "UNKNOWN");
+        show("compile-progress", data.setup_progress.compile || "UNKNOWN");
+      }
+      renderSymbols(data.symbols || [], live, Boolean(data.safety_block));
+      renderMarketTags(data.market_tags || [], mt5Connected);
+      renderHistory(data.history || []);
+      renderWarnings(data.warnings || [], data.error, data.last_trade);
+    }
+
+    function renderMarketTags(tags, mt5Connected) {
+      const container = byId("market-tags");
+      if (!tags.length) {
+        container.innerHTML = `<div class="empty">${mt5Connected ? "No enabled symbol quotes returned." : "MT5 quote feed unavailable."}</div>`;
+        return;
+      }
+      container.innerHTML = tags.map((tag) => {
+        if (tag.error) return `<article class="market-tag"><div class="tag-head"><span class="tag-symbol">${escapeHtml(tag.symbol)}</span><span>NO DATA</span></div><div class="tag-meta">${escapeHtml(tag.error)}</div></article>`;
+        return `<article class="market-tag"><div class="tag-head"><span class="tag-symbol">${escapeHtml(tag.symbol)}</span><span>${escapeHtml(tag.sample_signal || "--")}</span></div><div class="tag-prices"><span><small>BID</small>${Number(tag.bid).toFixed(tag.symbol.includes("JPY") ? 3 : tag.symbol.includes("XAU") ? 2 : 5)}</span><span><small>ASK</small>${Number(tag.ask).toFixed(tag.symbol.includes("JPY") ? 3 : tag.symbol.includes("XAU") ? 2 : 5)}</span></div><div class="tag-meta"><span>SPREAD ${Number(tag.spread).toFixed(tag.symbol.includes("XAU") || tag.symbol.includes("JPY") ? 3 : 5)}</span><span>${escapeHtml(tag.quote_time || "--")}</span></div></article>`;
+      }).join("");
+    }
+
+    function renderNews(data) {
+      const container = byId("news-list");
+      const freshness = data.age_seconds == null ? "NO SUCCESSFUL FETCH" : `${data.stale ? "STALE" : "LIVE"} · ${data.age_seconds}s · ${data.feeds_available}/2 FEEDS`;
+      show("news-freshness", `${freshness} · ADVISORY ONLY`);
+      if (!data.articles?.length) {
+        const detail = data.error || "No market-related headlines returned.";
+        container.innerHTML = `<div class="empty">${escapeHtml(detail)}</div>`;
+        return;
+      }
+      container.innerHTML = data.articles.slice(0, 6).map((article) => {
+        const date = article.published_at ? new Date(article.published_at).toLocaleString() : "TIME UNAVAILABLE";
+        return `<article class="news-item"><h3 class="news-title"><a href="${escapeHtml(article.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(article.title)}</a></h3><div class="news-meta"><span>${escapeHtml(article.source || "NEWS")}</span><time datetime="${escapeHtml(article.published_at || "")}">${escapeHtml(date)}</time></div></article>`;
+      }).join("");
+      if (data.error) container.insertAdjacentHTML("beforeend", `<div class="empty">Some feeds unavailable: ${escapeHtml(data.error)}</div>`);
+    }
+
+    async function refreshNews(force = false) {
+      const button = byId("refresh-news");
+      if (force) button.disabled = true;
+      try {
+        const response = await fetch(`/api/news${force ? "?refresh=true" : ""}`, { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || `API returned ${response.status}`);
+        renderNews(data);
+      } catch (error) {
+        renderNews({ articles: [], error: String(error), stale: true, feeds_available: 0 });
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    async function analyzeNews() {
+      const button = byId("analyze-news");
+      const output = byId("news-analysis-output");
+      button.disabled = true;
+      output.textContent = "Analyzing the latest available headlines...";
+      try {
+        const response = await fetch("/api/news/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question: "Summarize the current market factors in these headlines that may matter to gold (XAUUSD). Separate reported facts from possible channels, identify conflicts and uncertainty, and avoid buy/sell instructions." })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || `API returned ${response.status}`);
+        output.textContent = `${result.answer}\n\nUpdated ${result.news_fetched_at || "time unavailable"} · advisory only · no EA impact`;
+      } catch (error) {
+        output.textContent = String(error);
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    function renderSymbols(symbols, live, globalBlock) {
+      const container = byId("symbols");
+      let satisfied = 0;
+      let remaining = 0;
+      let blockedCount = 0;
+      let notEvaluated = 0;
+      for (const symbol of symbols) {
+        for (const check of symbol.checks || []) {
+          if (check.applicable === false || check.required === false) continue;
+          const safetyGate = /risk and safety/i.test(check.name);
+          if (safetyGate && (symbol.blocked_reason || globalBlock)) blockedCount++;
+          else if (!live || !symbol.evaluated) notEvaluated++;
+          else if (check.passed) satisfied++;
+          else remaining++;
+        }
+      }
+      show("condition-summary", `${satisfied} SATISFIED · ${remaining} REMAINING · ${blockedCount} BLOCKED · ${notEvaluated} NOT EVALUATED`);
+      if (!symbols.length) {
+        container.innerHTML = `<div class="empty">${live ? "No enabled symbol checks in the latest snapshot." : "Waiting for strategy snapshot from MT5."}</div>`;
+        return;
+      }
+      container.innerHTML = symbols.map((symbol) => {
+        const blocked = symbol.blocked_reason || (globalBlock ? "Global EA safety rule" : "");
+        const signal = symbol.signal || `${symbol.direction || "--"} SETUP`;
+        const checks = (symbol.checks || []).map((check) => {
+          let state;
+          let style;
+          const safetyGate = /risk and safety/i.test(check.name);
+          if (check.applicable === false) { state = "NOT APPLICABLE"; style = "na"; }
+          else if (check.required === false) { state = check.passed ? "OPTIONAL · ALIGNED" : "OPTIONAL"; style = "na"; }
+          else if (safetyGate && blocked) { state = "BLOCKED"; style = "blocked"; }
+          else if (!symbol.evaluated || !live) { state = "NOT EVALUATED"; style = "na"; }
+          else if (check.passed) { state = "SATISFIED"; style = "pass"; }
+          else { state = "REMAINING"; style = "remaining"; }
+          return `<div class="check"><span class="check-name">${escapeHtml(check.name)}</span><span class="check-state ${style}">${state}</span></div>`;
+        }).join("");
+        const reason = blocked || symbol.reason || "";
+        return `<article class="symbol-panel"><div class="symbol-head"><span class="symbol-name">${escapeHtml(symbol.symbol)}</span><span class="symbol-direction ${signal.includes("BLOCKED") ? "blocked" : ""}">${escapeHtml(signal)} · ${escapeHtml(symbol.trend || "UNKNOWN")}</span></div><div class="checklist">${checks || '<div class="empty">No condition values available.</div>'}</div><p class="symbol-reason">${reason ? escapeHtml(reason) : "All reported entry checks passed; risk and order validation still apply."}</p></article>`;
+      }).join("");
+    }
+
+    function renderHistory(rows) {
+      const body = byId("history");
+      if (!rows.length) {
+        body.innerHTML = '<tr><td class="empty" colspan="4">No closed EA trades reported by MT5.</td></tr>';
+        return;
+      }
+      body.innerHTML = rows.map((row) => `<tr><td>${escapeHtml(row.time || "--")}</td><td>${escapeHtml(row.symbol || "--")}</td><td>${escapeHtml(row.direction || "--")}</td><td>${escapeHtml(row.net_profit || "--")} ${escapeHtml(row.currency || "")}</td></tr>`).join("");
+    }
+
+    function renderWarnings(warnings, error, lastTrade) {
+      const container = byId("warnings");
+      const items = [...new Set(warnings)];
+      if (error && error !== "-") items.push(error);
+      if (lastTrade && lastTrade !== "-") items.push(`Last EA trade event: ${lastTrade}`);
+      if (!items.length) {
+        container.innerHTML = '<div class="empty">No current warnings reported.</div>';
+        return;
+      }
+      container.innerHTML = [...new Set(items)].map((item) => `<div class="warning ${/error|disconnected|stale/i.test(item) ? "error" : ""}">${escapeHtml(item)}</div>`).join("");
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
+    }
+
+    async function refresh() {
+      try {
+        const response = await fetch("/api/status", { cache: "no-store" });
+        if (!response.ok) throw new Error(`API returned ${response.status}`);
+        updateStatus(await response.json());
+      } catch (error) {
+        updateStatus({ bot_status: "DISCONNECTED", data_state: "DISCONNECTED", running: false, connected: false, warnings: [String(error)], symbols: [], history: [] });
+      }
+    }
+
+    async function control(action) {
+      try {
+        const response = await fetch("/api/control", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || `API returned ${response.status}`);
+        showToast(result.message || `${action} queued. Waiting for MT5 acknowledgement.`);
+        await refresh();
+      } catch (error) {
+        showToast(String(error));
+      }
+    }
+
+    function showToast(message) {
+      const toast = byId("toast");
+      toast.textContent = message;
+      toast.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove("show"), 3500);
+    }
+
+    byId("start-button").addEventListener("click", () => control("START"));
+    byId("stop-button").addEventListener("click", () => control("STOP"));
+    byId("refresh-news").addEventListener("click", () => refreshNews(true));
+    byId("analyze-news").addEventListener("click", analyzeNews);
+    refresh();
+    setInterval(refresh, 2000);
+    refreshNews();
+    newsTimer = setInterval(refreshNews, 60000);
+  </script>
+</body>
+</html>

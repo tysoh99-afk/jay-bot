@@ -1,0 +1,9 @@
+MetaTrader5<6,>=5.0.45
+python-dotenv<2,>=1
+fastapi<1,>=0.115
+uvicorn[standard]<1,>=0.30
+openai<3,>=1.50
+
+[test]
+pytest<9,>=8
+httpx<1,>=0.27
