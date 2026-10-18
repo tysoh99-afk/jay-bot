@@ -18,7 +18,7 @@ Use Windows, MT5/MetaEditor, and Python 3.10+ supported by the installed MetaTra
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -e ".[test]"
+python -m pip install -e ".[test,mt5]"
 Copy-Item .env.example .env
 ```
 
