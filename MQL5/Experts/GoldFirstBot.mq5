@@ -319,6 +319,24 @@ void GFWriteStatusFile()
       symbols_json += "{\"name\":\"Global risk and safety limits\",\"passed\":" + (item.risk_limits_available ? "true" : "false") + "}]}";
    }
    symbols_json += "]";
+   string market_tags_json = "[";
+   int market_tag_count = 0;
+   for(int index = 0; index < ArraySize(g_symbols); index++)
+   {
+      MqlTick tick;
+      if(!SymbolInfoTick(g_symbols[index], tick))
+         continue;
+      if(market_tag_count > 0)
+         market_tags_json += ",";
+      market_tags_json += "{\"symbol\":\"" + GFJsonEscape(g_symbols[index]) +
+         "\",\"bid\":" + DoubleToString(tick.bid, 8) + ",\"ask\":" +
+         DoubleToString(tick.ask, 8) + ",\"spread\":" + DoubleToString(tick.ask - tick.bid, 8) +
+         ",\"quote_time\":\"" + TimeToString(tick.time, TIME_DATE | TIME_SECONDS) +
+         "\",\"quote_epoch\":" + IntegerToString((long)tick.time) +
+         ",\"sample_signal\":\"EA MARKET DATA\"}";
+      market_tag_count++;
+   }
+   market_tags_json += "]";
    string protection = "";
    if(GFDailyLossProtectionActive(InpMagicNumber, g_max_daily_loss_percent))
       protection = "Daily loss protection active";

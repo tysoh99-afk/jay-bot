@@ -302,7 +302,7 @@ def read_ea_status() -> dict[str, Any]:
         "spread": spread,
         "trades_remaining": max(0, daily_limit - daily_trades),
         "warnings": warnings,
-        "history": _recent_trade_history(),
+        "history": snapshot.get("history", []) if remote_snapshot else _recent_trade_history(),
         "symbols": checks_by_symbol,
         "setup_progress": _setup_progress(),
     }
@@ -386,10 +386,7 @@ def receive_ea_heartbeat(
     with _remote_bridge_lock:
         _remote_snapshot = snapshot
         _remote_received_at = received_at
-        if _remote_pending_command == "START" and snapshot["running"]:
-            _remote_pending_command = ""
-            _remote_command_delivered_at = 0.0
-        elif _remote_pending_command == "STOP" and not snapshot["running"]:
+        if _remote_pending_command and _remote_command_delivered_at and received_at >= _remote_command_delivered_at:
             _remote_pending_command = ""
             _remote_command_delivered_at = 0.0
     return {"received": True}
@@ -454,6 +451,31 @@ def market_snapshot() -> dict[str, Any]:
         }
     finally:
         client.close()
+
+
+def remote_market_snapshot() -> dict[str, Any]:
+    with _remote_bridge_lock:
+        snapshot = dict(_remote_snapshot) if _remote_snapshot is not None else None
+        received_at = _remote_received_at
+    if snapshot is None or time.time() - received_at > STATUS_MAX_AGE_SECONDS:
+        raise ConnectionError("No recent MT5 EA heartbeat is available")
+    tags = snapshot.get("market_tags", [])
+    if not isinstance(tags, list) or not tags:
+        raise ConnectionError("The MT5 EA heartbeat contains no market quotes")
+    primary = next((tag for tag in tags if tag.get("symbol") == "XAUUSD"), tags[0])
+    symbols = snapshot.get("symbols", [])
+    signal = next((item for item in symbols if item.get("symbol") == primary.get("symbol")), {})
+    return {
+        "broker": "MetaTrader 5 via authenticated EA bridge",
+        "symbol": primary.get("symbol"),
+        "market_tags": tags,
+        "bid": primary.get("bid"),
+        "ask": primary.get("ask"),
+        "quote_time": primary.get("quote_time"),
+        "signal": signal.get("signal"),
+        "execution_enabled": False,
+        "execution_controller": "GoldFirstBot.mq5",
+    }
 
 
 @app.get("/health")
@@ -528,7 +550,7 @@ def analyze_market_news(
 @app.get("/market")
 def market() -> dict[str, Any]:
     try:
-        return market_snapshot()
+        return remote_market_snapshot() if os.getenv("MT5_BRIDGE_TOKEN") else market_snapshot()
     except (ConnectionError, RuntimeError, ValueError) as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
 
@@ -581,7 +603,7 @@ def assistant(request: AssistantQuestion, authorization: str = Header(default=""
         )
 
     try:
-        snapshot = market_snapshot()
+        snapshot = remote_market_snapshot() if os.getenv("MT5_BRIDGE_TOKEN") else market_snapshot()
     except (ConnectionError, RuntimeError, ValueError) as error:
         raise HTTPException(status_code=503, detail=f"MT5 market data unavailable: {error}") from error
 

@@ -1,12 +1,12 @@
 # Gold-First MT5 Bot
 
-This existing project contains a native MT5 Expert Advisor for XAUUSD-first, then EURUSD and enabled additional symbols. The MQL5 EA owns strategy decisions, order sizing, protective stops, and all automated execution. Python is a read-only local API/dashboard bridge; it has no random-entry loop or order endpoint.
+This project contains a native MT5 Expert Advisor for XAUUSD-first, then EURUSD and enabled additional symbols. The MQL5 EA owns strategy decisions, order sizing, protective stops, and all automated execution. Python is a read-only API/dashboard bridge; it has no random-entry loop or order endpoint.
 
 ## Current State
 
 - Complete: M15/H1 trend-pullback strategy, gold TP 10.0 and SL 3.0 price units, 0.5% default equity risk, five managed open positions maximum, one per symbol, daily trade limit default 20/configurable to 25, daily-loss protection, and demo-account-only EA initialization.
 - Complete: MT5 chart START/STOP controls, status lamp, risk/settings controls, and position management that continues after STOP with broker SL/TP left in place.
-- Complete: local API and `index.html` dashboard using a file bridge. The EA writes live status and actual per-symbol checks to MT5 Common Files. If the EA is not attached, the API reports EA NOT ATTACHED while a cached read-only MT5 probe can still show current quote tags; if MT5 itself is unavailable it reports DISCONNECTED. EA heartbeats older than 10 seconds are DATA STALE.
+- Complete: local file bridge and authenticated hosted API/dashboard bridge. The EA writes local Common Files status and can post snapshots and quotes over HTTPS; Render can queue authenticated START/STOP commands for the EA to poll. Heartbeats older than 10 seconds are DATA STALE.
 - Complete: Python unit/API tests and MetaEditor compilation of the workspace EA source; details are recorded in `TODO.md`.
 - Not complete: no Strategy Tester run, broker-confirmed demo forward test, or live EA heartbeat has been recorded in this environment. No performance result is claimed.
 
@@ -23,6 +23,8 @@ Copy-Item .env.example .env
 ```
 
 Put your OpenAI API key in the project-root `.env` as `OPENAI_API_KEY=...`; do not put it in `.env.example` or commit it. An API key does not include API credits: enable API billing and check usage limits in the OpenAI Platform. ChatGPT subscriptions and API billing are separate.
+
+For Render, set `OPENAI_API_KEY`, `DASHBOARD_ACCESS_TOKEN`, and `MT5_BRIDGE_TOKEN` as private service environment variables. Use two distinct, randomly generated tokens; never commit them or send them in chat. The dashboard asks for `DASHBOARD_ACCESS_TOKEN` and stores it only for the browser session. Enter the same `MT5_BRIDGE_TOKEN` in the EA's `InpCloudBridgeToken` input.
 
 The `.env` values for `MT5_SYMBOL` and `MT5_TIMEFRAME` are used by the separate read-only Python market inspector. The native EA has its own M15/H1 inputs and enabled-symbol settings. Set `MT5_TERMINAL_PATH` only if MT5 is not found by the installed MetaTrader5 package.
 
@@ -67,6 +69,15 @@ Open <http://127.0.0.1:5000/> in this workspace. Do not open `index.html` direct
 The status display separates satisfied, remaining, blocked, and not-evaluated conditions. Optional checks such as higher-timeframe alignment are labeled not applicable when disabled. A global risk block is shown as BLOCKED and is not counted as a valid entry opportunity. When the EA is unattached, the market-tag panel shows current bid/ask/spread plus a clearly labeled read-only EMA 9/21 sample; it is not the EA signal or a trade recommendation. Closed-trade history comes from EA result records, not sample or fabricated values.
 
 The live-news panel reads the public FXStreet and CNBC RSS feeds, caches responses briefly, labels direct gold coverage separately from broader market drivers, and shows feed freshness and failures. Topic labels are keyword-based context, not sentiment or price-impact forecasts. News analysis is an optional OpenAI summary and is never sent to the EA or used to open, modify, or close positions. Feed availability depends on the publisher and network; stale or unavailable news is labeled in the UI.
+
+### Render + MT5 Setup
+
+1. In Render, add `OPENAI_API_KEY`, `DASHBOARD_ACCESS_TOKEN`, and `MT5_BRIDGE_TOKEN` under the service's Environment settings. Use distinct random values for the two tokens. Save changes and let Render redeploy.
+2. Recompile `MQL5/Experts/GoldFirstBot.mq5` in MetaEditor, then attach the compiled EA to a demo chart. Set its `InpCloudBridgeToken` input to the same `MT5_BRIDGE_TOKEN` value and leave `InpCloudBridgeUrl` at the Render URL unless the service URL changes.
+3. In MT5, add `https://jaybot-lsoj.onrender.com` to **Tools > Options > Expert Advisors > Allow WebRequest for listed URL**. The EA refuses non-demo accounts; auto-start is off by default.
+4. Open the Render service URL, enter the `DASHBOARD_ACCESS_TOKEN`, and wait for the EA heartbeat. START/STOP is sent to the EA; the Python API never places orders.
+
+The hosted service cannot read the Windows Common Files directory directly. The HTTPS bridge forwards EA status and quotes while local Common Files retain the local workflow. Render free instances may sleep and delay the first request; this bridge is for monitoring and demo use, not latency-sensitive live execution.
 
 ## Python Read-Only Tools
 

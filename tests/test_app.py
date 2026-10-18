@@ -429,6 +429,12 @@ def test_remote_bridge_authenticates_heartbeat_and_dashboard_commands(monkeypatc
     assert acknowledged.status_code == 200
     assert client.get("/api/bridge/command", headers=command_headers).text == "NONE"
 
+    client.post("/api/control", json={"action": "START"}, headers={"Authorization": "Bearer dashboard-secret"})
+    client.get("/api/bridge/command", headers=command_headers)
+    snapshot.update(running=False, status="RISK PROTECTION ACTIVE - START REFUSED")
+    client.post("/api/bridge/heartbeat", json=snapshot, headers=command_headers)
+    assert client.get("/api/bridge/command", headers=command_headers).text == "NONE"
+
 
 def test_openai_news_analysis_requires_dashboard_token(monkeypatch) -> None:
     monkeypatch.setenv("DASHBOARD_ACCESS_TOKEN", "dashboard-secret")
