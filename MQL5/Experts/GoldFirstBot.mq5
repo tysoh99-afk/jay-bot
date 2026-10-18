@@ -988,6 +988,8 @@ void GFManageOpenPositions()
 
 void GFScan()
 {
+   GFOpportunity candidates[];
+   GFBuildCandidates(candidates);
    if(!g_running)
       return;
    if(!TerminalInfoInteger(TERMINAL_CONNECTED) || !AccountInfoInteger(ACCOUNT_TRADE_ALLOWED) ||
@@ -1031,8 +1033,7 @@ void GFScan()
       return;
    }
 
-   GFOpportunity candidates[];
-   if(GFBuildCandidates(candidates) == 0)
+   if(ArraySize(candidates) == 0)
    {
       g_status = "RUNNING - WAITING FOR ENTRY";
       return;
