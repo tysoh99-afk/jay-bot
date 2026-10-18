@@ -274,7 +274,7 @@
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!response.ok) throw new Error(response.status === 503
-        ? "Set DASHBOARD_ACCESS_TOKEN in Render before unlocking."
+        ? "DASHBOARD_ACCESS_TOKEN is not configured in Render."
         : "Dashboard access token was not accepted.");
       sessionStorage.setItem("jaytrade-dashboard-token", token);
       startDashboard();
@@ -511,17 +511,19 @@
       toastTimer = setTimeout(() => toast.classList.remove("show"), 3500);
     }
 
-    if (localDashboard) {
-      startDashboard();
+    if (localDashboard && !sessionStorage.getItem("jaytrade-dashboard-token")) {
+      fetch("/api/status", { cache: "no-store" }).then((response) => {
+        if (!response.ok) throw new Error("Dashboard access token required");
+        startDashboard();
+      }).catch(() => { byId("auth-gate").hidden = false; });
+    } else if (sessionStorage.getItem("jaytrade-dashboard-token")) {
+      unlockDashboard(sessionStorage.getItem("jaytrade-dashboard-token")).catch((error) => {
+        sessionStorage.removeItem("jaytrade-dashboard-token");
+        byId("auth-gate").hidden = false;
+        byId("auth-error").textContent = String(error.message || error);
+      });
     } else {
       byId("auth-gate").hidden = false;
-      const savedToken = sessionStorage.getItem("jaytrade-dashboard-token");
-      if (savedToken) {
-        unlockDashboard(savedToken).catch((error) => {
-          sessionStorage.removeItem("jaytrade-dashboard-token");
-          byId("auth-error").textContent = String(error.message || error);
-        });
-      }
     }
   </script>
 </body>

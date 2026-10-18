@@ -438,6 +438,7 @@ def test_remote_bridge_authenticates_heartbeat_and_dashboard_commands(monkeypatc
 
 def test_openai_news_analysis_requires_dashboard_token(monkeypatch) -> None:
     monkeypatch.setenv("DASHBOARD_ACCESS_TOKEN", "dashboard-secret")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     response = client.post("/api/news/analyze", json={"question": "Analyze gold"})
 
