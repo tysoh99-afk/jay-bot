@@ -212,6 +212,24 @@ def read_ea_status() -> dict[str, Any]:
         except (OSError, json.JSONDecodeError, ValueError) as error:
             snapshot = None
     if snapshot is None:
+        if os.getenv("MT5_BRIDGE_TOKEN"):
+            return {
+                "bot_status": "DISCONNECTED",
+                "data_state": "DISCONNECTED",
+                "running": False,
+                "connected": False,
+                "mt5_connected": False,
+                "pending_command": _pending_ea_command(),
+                "market_age_seconds": None,
+                "market_tags": [],
+                "error": "Waiting for the MT5 EA cloud heartbeat",
+                "symbols": [],
+                "history": [],
+                "setup_progress": _setup_progress(),
+                "warnings": [
+                    "Attach GoldFirstBot in MT5 and configure its cloud bridge URL and token"
+                ],
+            }
         market = _read_market_tags()
         market_tags = market["tags"]
         market_age = max(
